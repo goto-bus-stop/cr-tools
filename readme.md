@@ -1,3 +1,6 @@
-# CanvasRider Curve Tool
+# CanvasRider Tools
 
-A simple Bézier curve tool userscript for CanvasRider. Assumes Greasemonkey or Tampermonkey.
+A simple userscript for CanvasRider. Assumes Greasemonkey or Tampermonkey.
+Adds Bézier Curves, Circles and Rectangles.
+
+Scenery lines is a work in progress.
