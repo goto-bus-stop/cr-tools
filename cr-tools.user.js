@@ -4,6 +4,8 @@
 // @include        http://canvasrider.com/draw
 // @match          http://canvasrider.com/draw
 // ==/UserScript==
+(function() {
+
 var w = (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window),
   // more common names for several CanvasRider classes
   /** @constructor */ Track = w.BI,
@@ -31,6 +33,21 @@ var w = (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window),
   selected,
   // holds all objects created with the extra tools
   additionalItems = [];
+
+/**
+ * @typedef {(Line|Scenery)}
+ */
+var CRLine;
+
+/**
+ * @typedef {(Boost|Gravity)}
+ */
+var CRPointingItem;
+
+/**
+ * @typedef {(CRPointingItem|SlowMotion|Checkpoint|Bomb|Goal)}
+ */
+var CRItem;
 
 /**
  * Selects an object.
@@ -99,6 +116,7 @@ function reallyAddLine(line) {
     // sets snap point for next line
     (scenery ? w.Bg : w.Bf).AN(w.w);
   }
+  return line;
 }
 /**
  * Generic line-adding, creates a line (X, Y) -> (u, v) and reallyAddsIt.
@@ -135,6 +153,11 @@ function addObject(Obj, x, y, deg) {
   return obj;
 }
 
+/**
+ * Spline-smooths the given list of points.
+ * @param {Array.<Point>} pointList
+ * @return {Array.<Point>} Smoother list.
+ */
 function smoothLine(pointList) {
   if (!pointList) {
     return [];
@@ -168,6 +191,9 @@ function smoothLine(pointList) {
   return points;
 }
 
+/**
+ * Moves camera if the mouse is near the boundaries of the canvas.
+ */
 function moveCam() {
   var mousePos = w.w.o();
   if (mousePos.x < 50) {
@@ -178,6 +204,7 @@ function moveCam() {
     w.C.A5.x += 10 / w.C.H;
     w.w.x += 10 / w.C.H;
   }
+
   if (mousePos.y < 50) {
     w.C.A5.y -= 10 / w.C.H;
     w.w.y -= 10 / w.C.H;
@@ -186,6 +213,102 @@ function moveCam() {
     w.C.A5.y += 10 / w.C.H;
     w.w.y += 10 / w.C.H;
   }
+}
+
+/**
+ * Extend a class with some basic methods for line compositions.
+ */
+function ITEM(cls) {
+  var p = cls.prototype;
+
+  /**
+   * Selects this item.
+   * @return {Object}
+   */
+  p.select = function () {
+    select(this);
+
+    onDraw(this.Am, this);
+
+    return this.attach().redraw();
+  };
+  
+  /**
+   * Deselects this item.
+   * @return {Object}
+   */
+  p.blur = function () {
+    onDraw.rm(this.Am);
+
+    if (selected === this) {
+      selected = null;
+    }
+
+    this.$selected = false;
+
+    return this.detach().redraw();
+  };
+
+  /**
+   * Restores overridden events.
+   * @return {Object}
+   */
+  p.detach = function () {
+    // restore events
+    this.d && (canvas.onmousedown = this.d);
+    this.m && (document.onmousemove = this.m);
+    this.u && (canvas.onmouseup = this.u);
+
+    return this;
+  };
+
+  p.finish = p.blur;
+
+  /**
+   * Removes all lines this thing claims to use from the canvas.
+   * @return {Object}
+   */
+  p.removeLines = function () {
+    var t = this,
+      i = 0,
+      l = t.lines.length;
+    for (; i < l; i++) {
+      t.lines[i].remove = true;
+    }
+    for (i = 0, l = t.grids.length; i < l; i++) {
+      t.grids[i].remove();
+    }
+    w.C.Ax = {};
+
+    return t;
+  };
+
+  /**
+   * Removes and adds this composition's lines.
+   * @return {Object}
+   */
+  p.redraw = function () {
+    return this.removeLines().putLines();
+  };
+
+  /**
+   * Computes the distance from this composition of lines to a point.
+   * @param {Point} p The Point.
+   * @return {number} The distance.
+   */
+  p.distanceTo = function (p) {
+    var t = this,
+      dist = Infinity,
+      i = 0,
+      l = t.lines.length;
+
+    for (; i < l; i++) {
+      dist = Math.min(dist, t.lines[i].distanceTo(p));
+    }
+
+    return dist;
+  };
+
 }
 
 // enhance Track draw & remove function
@@ -197,29 +320,28 @@ function moveCam() {
    */
   p.Am = function draw() {
     d.call(this);
-
+    
     onDraw();
 
-    if (drawing && w.V === 'curve') {
-      var x = w.AF.o(),
-        y = w.w.o();
+    var mousePos = w.w.o(),
+      lastClickPos = w.AF.o();
 
+    if (drawing && w.V === 'curve') {
+      moveCam();
       context.beginPath();
       context.strokeStyle = '#00f';
       context.lineWidth = w.C.H * 2;
-      context.moveTo(x.x, x.y);
-      context.lineTo(y.x, y.y);
+      context.moveTo(lastClickPos.x, lastClickPos.y);
+      context.lineTo(mousePos.x, mousePos.y);
       context.stroke();
     }
 
-    // draw unfinished circle
     if (w.A0 && w.V === 'circle') {
       moveCam();
       context.beginPath();
       context.strokeStyle = '#00f';
       context.lineWidth = 2 * w.C.H;
-      var lastClickPos = w.AF.o(),
-        r = Math.abs(mousePos.sub(lastClickPos).length());
+      var r = Math.abs(mousePos.sub(lastClickPos).length());
       context.moveTo(lastClickPos.x + r, lastClickPos.y);
       context.arc(lastClickPos.x, lastClickPos.y, r, 0, Math.PI * 2);
       context.stroke();
@@ -228,24 +350,7 @@ function moveCam() {
       moveCam();
     }
     if (w.A0 && w.V === 'rectangle') {
-      var mousePos = w.w.o(),
-        lastClickPos = w.AF.o();
-      if (mousePos.x < 50) {
-        w.C.A5.x -= 10 / w.C.H;
-        w.w.x -= 10 / w.C.H;
-      }
-      else if (mousePos.x > canvas.width - 50) {
-        w.C.A5.x += 10 / w.C.H;
-        w.w.x += 10 / w.C.H;
-      }
-      if (mousePos.y < 50) {
-        w.C.A5.y -= 10 / w.C.H;
-        w.w.y -= 10 / w.C.H;
-      }
-      else if (mousePos.y > canvas.height - 50) {
-        w.C.A5.y += 10 / w.C.H;
-        w.w.y += 10 / w.C.H;
-      }
+      moveCam();
       context.strokeStyle = '#00f';
       context.lineWidth = 2 * w.C.H;
       context.strokeRect(lastClickPos.x, lastClickPos.y, mousePos.x - lastClickPos.x, mousePos.y - lastClickPos.y);
@@ -287,8 +392,6 @@ function moveCam() {
     context.strokeStyle = '#000';
     context.lineWidth = 1.2;
     context.stroke();
-
-    return this;
   };
 
   /**
@@ -324,6 +427,10 @@ function moveCam() {
     return this.sub(p).length();
   };
 
+  /**
+   * Creates an exact copy of this point.
+   * @return {Point} The clone.
+   */
   p.clone = function () {
     return new Point(this.x, this.y);
   };
@@ -469,7 +576,6 @@ function moveCam() {
   /**
    * I .Am keeping the game's minified naming convention here :)
    * Draws this line.
-   * @return {Line}
    */
   p.Am = function draw() {
     var l = this,
@@ -491,12 +597,11 @@ function moveCam() {
     context.fill();
 
     context.globalAlpha = 1;
-
-    return this;
   };
 
 }(Line.prototype));
 
+// enhance GridBoxes to delegate selecting items
 (function enhanceGridBox(p) {
 
   /**
@@ -524,77 +629,6 @@ function moveCam() {
 
 }(GridBox.prototype));
 
-function ITEM(cls) {
-  var p = cls.prototype;
-
-  /**
-   * Selects this item.
-   * @return {Object}
-   */
-  p.select = function () {
-    select(this);
-
-    onDraw(this.Am, this);
-
-    return this.attach().redraw();
-  };
-
-  p.blur = function () {
-    onDraw.rm(this.Am);
-
-    if (selected === this) {
-      selected = null;
-    }
-
-    this.$selected = false;
-
-    return this.detach().redraw();
-  };
-
-  p.detach = function () {
-    // restore events
-    this.d && (canvas.onmousedown = this.d);
-    this.m && (document.onmousemove = this.m);
-    this.u && (canvas.onmouseup = this.u);
-
-    return this;
-  };
-
-  p.finish = p.blur;
-
-  p.removeLines = function () {
-    var t = this,
-      i = 0,
-      l = t.lines.length;
-    for (; i < l; i++) {
-      t.lines[i].remove = true;
-    }
-    for (i = 0, l = t.grids.length; i < l; i++) {
-      t.grids[i].remove();
-    }
-    w.C.Ax = {};
-
-    return t;
-  };
-
-  p.redraw = function () {
-    return this.removeLines().putLines();
-  };
-
-  p.distanceTo = function (p) {
-    var t = this,
-      dist = Infinity,
-      i = 0,
-      l = t.lines.length;
-
-    for (; i < l; i++) {
-      dist = Math.min(dist, t.lines[i].distanceTo(p));
-    }
-
-    return dist;
-  };
-}
-
 /**
  * THIS! IS!.. a curve!
  * @param {Point} start Starting point.
@@ -605,27 +639,51 @@ function ITEM(cls) {
 function Curve(start, end, scenery) {
   var c = this;
 
-  // .s = start
+  /**
+   * .s = start
+   * @type {Point}
+   */
   c.s = new Point(start.x, start.y);
-  // .e = end
+  /**
+   * .e = end
+   * @type {Point}
+   */
   c.e = new Point(end.x, end.y);
 
-  // .p = reference point 1
+  /**
+   * .p = reference point 1
+   * @type {Point}
+   */
   c.p = start.add(new Point(10, 30));
-  // .q = reference point 2
+  /**
+   * .q = reference point 2
+   * @type {Point}
+   */
   c.q = end.add(new Point(-10, 30));
 
-  // .f = finished drawing
+  /**
+   * .f = finished drawing
+   * @type {boolean}
+   */
   c.f = false;
-  // .i = type of curve (scenery | line)
+  /**
+   * .i = isSceneryLines
+   * @type {boolean}
+   */
   c.i = scenery === true;
 
+  /** @type {Array.<CRLine>} */
   c.lines = [];
+  /** @type {Array.<GridBox>} */
   c.grids = [];
 }
 ITEM(Curve);
 (function (p) {
 
+  /**
+   * Attach events needed to drag control points.
+   * @return {Curve}
+   */
   p.attach = function () {
     var c = this,
       // references to original functions,
@@ -681,6 +739,10 @@ ITEM(Curve);
     return c;
   };
 
+  /**
+   * Compute and add the lines on this curve.
+   * @return {Curve}
+   */
   p.putLines = function () {
     var lines = [],
       grids = [],
@@ -731,6 +793,9 @@ ITEM(Curve);
     return c;
   };
 
+  /**
+   * Draw the curve control points.
+   */
   p.Am = function draw() {
     var c = this,
       s = c.s.o(),
@@ -774,27 +839,49 @@ ITEM(Curve);
     context.fill();
 
     context.globalAlpha = 1;
-
-    return c;
   };
 
 }(Curve.prototype));
 
-// THIS! IS!.. a rectangle!
+/**
+ * THIS! IS!.. a rectangle!
+ * @param {Point} start One point on the Rectangle.
+ * @param {Point} end The point on the opposite side of the Rectangle.
+ * @param {bool=} scenery Whether this is a scenery line.
+ * @constructor
+ */
 function Rect(start, end, scenery) {
   var r = this;
 
+  /**
+   * .s = start
+   * @type {Point}
+   */
   r.s = new Point(start.x, start.y);
+  /**
+   * .e = end
+   * @type {Point}
+   */
   r.e = new Point(end.x, end.y);
 
+  /**
+   * .i = isSceneryLines
+   * @type {boolean}
+   */
   r.i = scenery === true;
 
+  /** @type {Array.<CRLine>} */
   r.lines = [];
+  /** @type {Array.<GridBox>} */
   r.grids = [];
 }
 ITEM(Rect);
 (function (p) {
 
+  /**
+   * Attach events needed to drag control points.
+   * @return {Rect}
+   */
   p.attach = function () {
     var r = this,
       // references to original functions,
@@ -844,6 +931,10 @@ ITEM(Rect);
     return r;
   };
 
+  /**
+   * Compute and add the lines on this rectangle.
+   * @return {Rect}
+   */
   p.putLines = function () {
     var r = this,
       lines = [],
@@ -866,6 +957,9 @@ ITEM(Rect);
     return r;
   };
 
+  /**
+   * Draw the Rectangle control points.
+   */
   p.Am = function draw() {
     var r = this,
       s = r.s.o(), // .o = getPixel
@@ -886,27 +980,49 @@ ITEM(Rect);
     context.fill();
 
     context.globalAlpha = 1;
-
-    return r;
   };
 
 }(Rect.prototype));
 
-// THIS! IS!.. a rectangle!
+/**
+ * THIS! IS!.. a circle!
+ * @param {Point} point The central point.
+ * @param {Point} side A point on the border of this Circle.
+ * @param {bool=} scenery If this is a scenery line or not.
+ * @constructor
+ */
 function Circle(point, side, scenery) {
   var c = this;
 
+  /**
+   * .p = point
+   * @type {Point}
+   */
   c.p = new Point(point.x, point.y);
+  /**
+   * .e = end
+   * @type {Point}
+   */
   c.e = new Point(side.x, side.y);
 
+  /**
+   * .i = isSceneryLines
+   * @type {boolean}
+   */
   c.i = scenery === true;
 
+  /** @type {Array.<CRLine>} */
   c.lines = [];
+  /** @type {Array.<GridBox>} */
   c.grids = [];
 }
 ITEM(Circle);
 (function (p) {
 
+  /**
+   * Attach events needed to drag control points.
+   * @return {Circle}
+   */
   p.attach = function () {
     var c = this,
       // references to original functions,
@@ -952,6 +1068,10 @@ ITEM(Circle);
     return r;
   };
 
+  /**
+   * Compute and add the lines on this rectangle.
+   * @return {Circle}
+   */
   p.putLines = function () {
     var c = this,
       lines = [],
@@ -989,6 +1109,9 @@ ITEM(Circle);
     return c;
   };
 
+  /**
+   * Draw the Circle control points.
+   */
   p.Am = function draw() {
     var c = this,
       s = c.p.o(), // .o = getPixel
@@ -1015,31 +1138,54 @@ ITEM(Circle);
     context.stroke();
 
     context.globalAlpha = 1;
-
-    return c;
   };
 
 }(Circle.prototype));
 
+/**
+ * THIS! IS!.. a smooth-brushed line!
+ * @param {Array.<Point>} points The list of points.
+ * @param {bool=} scenery If this is a scenery line or not.
+ * @constructor
+ */
 function SmoothBrush(points, scenery) {
   var b = this;
 
+  /**
+   * .p = points
+   * @type {Array.<Point>}
+   */
   b.p = points;
 
+  /**
+   * .i = isScenery
+   * @type {boolean}
+   */
   b.i = scenery === true;
 
-  b.lines = [];
-  b.grids = [];
+  /** @type {Array.<CRLine>} */
+  c.lines = [];
+  /** @type {Array.<GridBox>} */
+  c.grids = [];
 }
 ITEM(SmoothBrush);
 (function (p) {
 
+  /**
+   * Add a (set of) point(s) to the mix.
+   * @param {(Point|Array.<Point>)} p The (set of) points.
+   * @return {SmoothBrush}
+   */
   p.add = function (p) {
     p instanceof Point ? this.p.push(p) : (this.p = this.p.concat(p));
 
     return this;
   };
 
+  /**
+   * unf.
+   * @return {SmoothBrush}
+   */
   p.attach = function () {
     var b = this,
       // references to original functions,
@@ -1063,6 +1209,10 @@ ITEM(SmoothBrush);
     return b;
   };
 
+  /**
+   * Spline-smooth this line and add it.
+   * @return {SmoothBrush}
+   */
   p.putLines = function () {
     var b = this,
       lines = [],
@@ -1085,6 +1235,9 @@ ITEM(SmoothBrush);
     return b;
   };
 
+  /**
+   * Not needed
+   */
   p.Am = function draw() {
     return this;
   };
@@ -1139,9 +1292,16 @@ canvas.onmousemove = function (e) {
       oldCursor = canvas.style.cursor;
       canvas.style.cursor = 'default';
     }
+    var i = Math.floor((e.clientY - BF.offsetTop + window.pageYOffset) / 25);
+    if (Bh[0][i]) {
+      label = [0, i, Bh[0][i]];
+    }
   }
-  else if (canvas.style.cursor === 'default') {
-    canvas.style.cursor = oldCursor;
+  else {
+    if (canvas.style.cursor === 'default') {
+      canvas.style.cursor = oldCursor;
+    }
+    label = false;
   }
 
   /*RM*/
@@ -1239,5 +1399,9 @@ document.onkeydown = function (e) {
 
 w.curve = Curve;
 
-// add curve hint text
-w.Bh[1][7] = 'bezier curve ( C - draw straight line, drag control points, right-click to confirm )';
+// add hint texts
+w.Bh[0][9]  = 'bezier curve ( C - draw straight line, drag control points, right-click to confirm )';
+w.Bh[0][10] = 'circle ( O - drag from center to border )';
+w.Bh[0][11] = 'rectangle ( T - drag from top-left corner to bottom-right corner )';
+
+}());
