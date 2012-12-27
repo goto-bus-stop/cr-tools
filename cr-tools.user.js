@@ -1346,31 +1346,9 @@ canvas.onmouseup = function (e) {
     else if (w.V === 'circle' && w.AF.sub(w.w).Ae() > 200) {
       // finished drawing the circle
       additionalItems.push(new Circle(w.AF, w.w).putLines());
-      //~ var center = {
-        //~ x: w.AF.x,
-        //~ y: w.AF.y
-      //~ }, radius = w.AF.sub(w.w).length(),
-        //~ pi2 = Math.PI * 2;
-      //~ //center.x += radius;
-      //~ var amount = pi2 * radius * radius / (radius * radius * 0.1),
-        //~ i = 0,
-        //~ step = pi2 / amount,
-        //~ lines = [],
-        //~ l = pi2 - step;
-      //~ for (; i <= l; i += step) {
-        //~ addLine(Math.round(radius * Math.cos(i) + center.x),
-        //~ Math.round(radius * Math.sin(i) + center.y),
-        //~ Math.round(radius * Math.cos(i + step) + center.x),
-        //~ Math.round(radius * Math.sin(i + step) + center.y),
-        //~ i + Math.PI / 2);
-      //~ }
-      //~ addLine(Math.round(radius * Math.cos(i) + center.x),
-      //~ Math.round(radius * Math.sin(i) + center.y),
-      //~ Math.round(radius + center.x),
-      //~ Math.round(center.y),
-      //~ pi2);
     }
     else if (w.V === 'rectangle' && w.AF.sub(w.w).Ae() > 100) {
+      // finished drawing the rectangle
       additionalItems.push(new Rect(w.AF, w.w).putLines());
     }
     drawing = false;
